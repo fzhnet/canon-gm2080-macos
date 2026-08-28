@@ -25,6 +25,11 @@
 *cupsVersion: 2.4
 *cupsModelNumber: 0
 *cupsFilter: "application/vnd.cups-raster 0 /Library/Printers/canon-gm2080/rastertocanonijgm"
+*cupsFilter: "application/vnd.cups-command 0 /Library/Printers/canon-gm2080/cmdtocanonijgm"
+
+*% Maintenance operations. Clean and PrintSelfTestPage are the standard
+*% CUPS spellings; the com.canon.* names are vendor extensions.
+*cupsCommands: "Clean PrintSelfTestPage com.canon.deepclean com.canon.autoalignment"
 *LandscapeOrientation: Plus90
 *VariablePaperSize: False
 *FileSystem: False

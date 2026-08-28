@@ -24,63 +24,32 @@
  * product and contains no Canon code.
  */
 
-#include <stdarg.h>
+#include "ivec.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <time.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <cups/cups.h>
 #include <cups/raster.h>
 
-static void emit(FILE *out, const char *fmt, ...)
-    __attribute__((format(printf, 2, 3)));
-
-static void
-emit(FILE *out, const char *fmt, ...)
-{
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(out, fmt, ap);
-    va_end(ap);
-}
-
-/* Every command block carries the same two namespaces and the same jobID. */
-static const char *XML_HEAD =
-    "<?xml version=\"1.0\" encoding=\"utf-8\" ?>"
-    "<cmd xmlns:ivec=\"http://www.canon.com/ns/cmd/2008/07/common/\""
-    " xmlns:vcn=\"http://www.canon.com/ns/cmd/2008/07/canon/\">"
-    "<ivec:contents><ivec:operation>";
-
-/* Canon writes empty elements self-closed (<ivec:jobname/>).  Mirror that
- * rather than sending <tag></tag>: the two are equivalent XML, but there is
- * no reason to hand the firmware a form its own driver never produces. */
-static void
-element(FILE *out, const char *tag, const char *value)
-{
-    if (value && *value)
-        emit(out, "<ivec:%s>%s</ivec:%s>", tag, value, tag);
-    else
-        emit(out, "<ivec:%s/>", tag);
-}
-
 static void
 start_job(FILE *out, const char *job_id, const char *user,
           const char *title, const char *uuid)
 {
-    emit(out, "%sStartJob</ivec:operation>"
+    ivec_emit(out, "%sStartJob</ivec:operation>"
               "<ivec:param_set servicetype=\"print\">"
               "<ivec:jobID>%s</ivec:jobID>"
               "<ivec:bidi>0</ivec:bidi>"
               "<ivec:forcepmdetection>OFF</ivec:forcepmdetection>",
-         XML_HEAD, job_id);
-    element(out, "jobname", title);
-    element(out, "username", user);
-    element(out, "computername", NULL);
-    emit(out, "<ivec:job_description><![CDATA[%s]]></ivec:job_description>"
+         IVEC_HEAD, job_id);
+    ivec_element(out, "jobname", title);
+    ivec_element(out, "username", user);
+    ivec_element(out, "computername", NULL);
+    ivec_emit(out, "<ivec:job_description><![CDATA[%s]]></ivec:job_description>"
               "<ivec:host_environment>linux</ivec:host_environment>"
               "</ivec:param_set></ivec:contents></cmd>", uuid);
 }
@@ -89,26 +58,23 @@ static void
 set_job_configuration(FILE *out, const char *job_id)
 {
     char stamp[32];
-    time_t now = time(NULL);
-    struct tm tm;
 
-    localtime_r(&now, &tm);
-    strftime(stamp, sizeof(stamp), "%Y%m%d%H%M%S", &tm);
+    ivec_datetime(stamp, sizeof(stamp));
 
-    emit(out, "%sSetJobConfiguration</ivec:operation>"
+    ivec_emit(out, "%sSetJobConfiguration</ivec:operation>"
               "<ivec:param_set servicetype=\"print\">"
               "<ivec:jobID>%s</ivec:jobID>"
               "<ivec:mismatch_mode>none</ivec:mismatch_mode>"
               "<ivec:datetime>%s</ivec:datetime>"
               "</ivec:param_set></ivec:contents></cmd>",
-         XML_HEAD, job_id, stamp);
+         IVEC_HEAD, job_id, stamp);
 }
 
 static void
 set_configuration(FILE *out, const char *job_id, const char *media,
                   const char *type, const char *colormode, int duplex)
 {
-    emit(out, "%sSetConfiguration</ivec:operation>"
+    ivec_emit(out, "%sSetConfiguration</ivec:operation>"
               "<ivec:param_set servicetype=\"print\">"
               "<ivec:jobID>%s</ivec:jobID>"
               "<ivec:papersize>%s</ivec:papersize>"
@@ -117,41 +83,41 @@ set_configuration(FILE *out, const char *job_id, const char *media,
               "<ivec:printcolormode>%s</ivec:printcolormode>"
               "<ivec:duplexprint>%s</ivec:duplexprint>"
               "</ivec:param_set></ivec:contents></cmd>",
-         XML_HEAD, job_id, media, type, colormode, duplex ? "ON" : "OFF");
+         IVEC_HEAD, job_id, media, type, colormode, duplex ? "ON" : "OFF");
 }
 
 static void
 set_page_configuration(FILE *out, const char *job_id, int more_pages)
 {
-    emit(out, "%sVendorCmd</ivec:operation>"
+    ivec_emit(out, "%sVendorCmd</ivec:operation>"
               "<ivec:param_set servicetype=\"print\">"
               "<ivec:jobID>%s</ivec:jobID>"
               "<vcn:ijoperation>SetPageConfiguration</vcn:ijoperation>"
               "<vcn:nextpage>%s</vcn:nextpage>"
               "</ivec:param_set></ivec:contents></cmd>",
-         XML_HEAD, job_id, more_pages ? "ON" : "OFF");
+         IVEC_HEAD, job_id, more_pages ? "ON" : "OFF");
 }
 
 static void
 send_data(FILE *out, const char *job_id, long size)
 {
-    emit(out, "%sSendData</ivec:operation>"
+    ivec_emit(out, "%sSendData</ivec:operation>"
               "<ivec:param_set servicetype=\"print\">"
               "<ivec:jobID>%s</ivec:jobID>"
               "<ivec:format>PWGRaster</ivec:format>"
               "<ivec:datasize>%ld</ivec:datasize>"
               "</ivec:param_set></ivec:contents></cmd>",
-         XML_HEAD, job_id, size);
+         IVEC_HEAD, job_id, size);
 }
 
 static void
 end_job(FILE *out, const char *job_id)
 {
-    emit(out, "%sEndJob</ivec:operation>"
+    ivec_emit(out, "%sEndJob</ivec:operation>"
               "<ivec:param_set servicetype=\"print\">"
               "<ivec:jobID>%s</ivec:jobID>"
               "</ivec:param_set></ivec:contents></cmd>",
-         XML_HEAD, job_id);
+         IVEC_HEAD, job_id);
 }
 
 /* ------------------------------------------------------------------ media */
