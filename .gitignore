@@ -1,2 +1,7 @@
 # Local machine configuration — contains your printer's address.
-docker/.env
+bridge/docker/.env
+
+# Native driver build output.
+native/build/
+native/dist/
+native/rastertocanonijgm

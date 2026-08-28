@@ -1,0 +1,4 @@
+#!/bin/bash
+# Make cupsd notice the newly installed PPD and filter.
+/usr/bin/killall -HUP cupsd 2>/dev/null || true
+exit 0

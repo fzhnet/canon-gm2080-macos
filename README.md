@@ -1,179 +1,171 @@
 # Canon GM2080 on macOS
 
 Canon ships **no macOS driver** for the GM2000/GM2080 series, and the printer
-supports **no driverless protocol**. This project makes it work anyway, by
-running Canon's official *Linux* driver inside a container and re-exposing the
-printer to macOS over plain IPP.
+supports **no driverless protocol** — no AirPrint, no IPP, no PDF, no PCL. This
+repository makes it print anyway, two different ways.
 
-Verified on macOS 26.5 (Apple Silicon) against a GM2080 at firmware 1.050.
+Developed against a GM2080 (firmware 1.050) on macOS 26.5, Apple Silicon.
 
-```
-┌─ macOS ────────────────────────────────────────────────┐
-│  Print dialog                                          │
-│      │ PDF over IPP                                    │
-│      ▼                                                 │
-│  queue "Canon_GM2080"  ──▶  127.0.0.1:6631             │
-└──────────────────────────────────│─────────────────────┘
-                                   ▼
-┌─ Docker (linux/amd64, Rosetta) ────────────────────────┐
-│  CUPS + Canon cnijfilter2 6.81                         │
-│  PDF ─▶ CUPS raster ─▶ rastertocanonij                 │
-│                          │ BJRaster3 / IVEC            │
-└──────────────────────────│─────────────────────────────┘
-                           ▼  tcp/9100  (over VPN)
-                    Canon GM2080  @ $PRINTER_IP  
-```
+| | [`native/`](native/) | [`bridge/`](bridge/) |
+|---|---|---|
+| What it is | A real CUPS driver: `.pkg`, PPD, filter | Canon's Linux driver in a container, re-exposed over IPP |
+| Dependencies | none | Docker Desktop |
+| Architecture | arm64 + x86_64 native | amd64 under Rosetta |
+| Canon code | none | Canon's official closed-source driver |
+| Status | **experimental — never tested on paper** | **experimental — never tested on paper** |
 
-## Install
+Neither has been confirmed to put ink on a page. Everything short of that is
+verified; see [Status](#status) for exactly what that means.
 
-Requires Docker Desktop, running.
+## Which one to use
 
-```bash
-cp docker/.env.example docker/.env
-# edit docker/.env and set PRINTER_IP to your printer's address
-./scripts/install.sh
-```
+Start with **`native/`**. It is a normal driver: install a package, add the
+printer, done. Nothing keeps running in the background.
 
-That builds the container, starts it, adds the macOS queue `Canon_GM2080`, and
-installs a launchd agent so the bridge returns after a reboot.
+Fall back to **`bridge/`** if the native driver misbehaves. It routes pages
+through Canon's own driver, so its output is correct by construction — the
+cost is a container that has to be running whenever you print.
 
-Then print to **Canon_GM2080** from any app.
-
-Make sure Docker Desktop is set to **start at login** (Settings → General).
-The container carries `restart: unless-stopped`, so Docker brings it back by
-itself; the launchd agent is only a backstop for when that does not fire.
-
-## Uninstall
+## native — install
 
 ```bash
-./scripts/uninstall.sh          # keeps the built image
-./scripts/uninstall.sh --purge  # deletes it too
+cd native
+./build.sh
+sudo installer -pkg dist/CanonGM2080Native-1.0.pkg -target /
+./add-printer.sh <printer-ip>
 ```
 
-## Changing the printer's IP
+The package is unsigned, so double-clicking it is blocked by Gatekeeper; the
+`installer` command above is the intended path. Building needs the Xcode
+command line tools (`xcode-select --install`).
 
-Edit `PRINTER_IP` in `docker/.env`, then re-run `./scripts/install.sh`.
-That file is git-ignored — it holds your local addresses, not the project's.
+Installs exactly two files:
 
-## Why it has to be this complicated
+```
+/Library/Printers/canon-gm2080/rastertocanonijgm
+/Library/Printers/PPDs/Contents/Resources/canongm2080-native.ppd
+```
 
-The GM2080 reports this IEEE-1284 device ID over SNMP:
+## bridge — install
+
+Requires Docker Desktop, running and set to start at login.
+
+```bash
+cp bridge/docker/.env.example bridge/docker/.env
+# edit bridge/docker/.env and set PRINTER_IP
+./bridge/scripts/install.sh
+```
+
+Remove it with `./bridge/scripts/uninstall.sh` (add `--purge` to drop the
+image too).
+
+## How the printer actually works
+
+The GM2080 reports this over SNMP:
 
 ```
 MFG:Canon;CMD:BJRaster3,NCCe,IVEC;SOJ:CHMP,CHMPu;MDL:GM2080 series;
-VER:1.050;CID:CA_IVEC1TYPE2_IJP;
 ```
 
-`CMD:` lists everything the printer can parse. There is no PDF, no PostScript,
-no PCL, no PWG Raster and no URF — only Canon's proprietary **BJRaster3**,
-wrapped in Canon's **IVEC** XML command protocol. Port 631 is closed and the
-printer's own web UI reports `g_ipp_over_usb = 0`, so there is no IPP on either
-the network or the USB side.
+`CMD:` is the complete list of data it can parse. No PDF, no PostScript, no
+PCL, no PWG Raster, no URF. Port 631 is closed and the printer's own web UI
+reports `g_ipp_over_usb = 0`, so there is no IPP on either transport. That is
+why no amount of PPD-writing alone can help, and why AirPrint cannot work.
 
-That rules out every driverless path. Producing BJRaster3 requires Canon's
-closed-source rasteriser, and the only build of it that exists for a
-Unix-like OS is the Linux `cnijfilter2` package — hence the container.
+What it *does* accept turns out to be simple — plain-text XML commands with a
+standard PWG Raster payload, concatenated with no binary framing at all:
 
-Two approaches that look plausible but are **dead ends** — see
-[`docs/2026-08-23-investigation.md`](docs/2026-08-23-investigation.md) for the
-full evidence, so nobody burns a day rediscovering this:
+```
+StartJob                                  ┐
+SetJobConfiguration                       │ IVEC XML
+SetConfiguration    (media, colour, duplex)┘
+  VendorCmd  nextpage=ON   ┐
+  SendData   datasize=N    │ once per page
+  <PWG Raster page>        ┘
+  ...
+  VendorCmd  nextpage=OFF     ← last page only
+  SendData / <PWG Raster page>
+EndJob
+```
 
-- **AirPrint / IPP Everywhere** — the printer speaks no IPP at all.
-- **Grafting a PPD onto Canon's macOS IJ driver framework** — the framework is
-  installed on many Macs and does implement IVEC, but it needs a per-model
-  binary table (`CIJ<model>.db`) that Canon never built for the GM series. No
-  other model's table can substitute: GM2080 is a single-black, two-tank
-  machine, and every donor model with a macOS driver is four-colour CMYK.
+No length prefixes, no checksums, no escaping. macOS can already produce PWG
+Raster, so the native driver needs no Canon code — it writes the envelope and
+passes the raster through. Full details, including how each field was
+determined, are in
+[`docs/2026-08-28-protocol.md`](docs/2026-08-28-protocol.md).
+
+## Status
+
+**Verified for the native driver:**
+
+- Output is byte-structurally identical to Canon's own driver: same six
+  command blocks in the same order, same field values, for both single-page
+  and multi-page jobs (`nextpage` ON/ON/OFF across three pages, one PWG stream
+  per page, every declared `datasize` equal to its actual payload).
+- Raster geometry matches Canon exactly — 4800×6826 at 600 dpi for A4,
+  14400 bytes per line, 8 bits per colour, 24 bits per pixel, sRGB.
+- Media and paper-type tables were read back from Canon's driver rather than
+  guessed.
+- Compiles warning-free as a universal binary; the PPD passes `cupstestppd`.
+
+**Not verified for either approach:** that the printer accepts the stream and
+produces a correct page. That needs paper.
+
+If you test it, please open an issue saying what happened — success or not.
 
 ## Troubleshooting
 
-**Nothing prints, jobs sit in the queue.**
-Check that the printer is powered on and reachable — including the VPN, if
-yours sits behind one.
+**Jobs queue but nothing prints.** Check the printer is reachable:
 
 ```bash
-nc -z -G 5 "$(grep PRINTER_IP docker/.env | cut -d= -f2)" 9100 && echo reachable
+nc -z -G 5 <printer-ip> 9100 && echo reachable
 ```
 
-**Is the bridge alive?**
+**Native driver: see what the filter is doing.**
+
+```bash
+cupsctl --debug-logging
+lp -d Canon_GM2080 somefile.pdf
+tail -f /var/log/cups/error_log
+```
+
+**Bridge: check the container.**
 
 ```bash
 docker ps --filter name=canon-gm2080-bridge
-docker compose -f docker/docker-compose.yml logs -f
+docker compose -f bridge/docker/docker-compose.yml logs -f
 ```
 
-**Did the job reach the bridge?**
+**Bridge: `Operation not permitted` in the agent log.** A launchd agent cannot
+execute anything under `~/Documents` — it is spawned without TCC rights there
+and dies with exit 126. `install.sh` puts its launcher in
+`~/Library/Application Support/` for this reason. If you move the project,
+re-run the installer.
 
-```bash
-curl -s http://127.0.0.1:6631/printers/GM2080 -o /dev/null -w '%{http_code}\n'
-```
+## What this project ships
 
-**Bridge did not start after a reboot.**
-Docker Desktop must be running and set to start at login. The agent waits up
-to 10 minutes for it:
+`native/` contains no Canon code. It is an independent implementation of the
+command envelope, written against observed behaviour, and is MIT-licensed
+along with the rest of this repository (see [LICENSE](LICENSE)).
 
-```bash
-cat ~/Library/Logs/com.local.canon-gm2080-bridge.log
-```
+`bridge/` contains no Canon code either: it builds an image that installs
+`cnijfilter2` — closed source, redistributed by Canon under its own licence —
+from the [Ordissimo
+PPA](https://launchpad.net/~thierry-f/+archive/ubuntu/fork-michael-gruz) at
+build time. Nothing proprietary is vendored here, and building that image
+means accepting Canon's licence for that package.
 
-**Start it by hand:**
+Canon, PIXMA and IVEC are trademarks of Canon Inc. This is not a Canon product
+and is not affiliated with or endorsed by Canon.
 
-```bash
-./scripts/start-bridge.sh
-```
+## Two dead ends, documented
 
-**`Operation not permitted` in the agent log.**
-The launchd agent must never be pointed at a script inside `~/Documents`:
-launchd spawns it without TCC rights to that folder and it dies with exit 126.
-`install.sh` therefore installs its launcher to
-`~/Library/Application Support/canon-gm2080-bridge/`, which is not
-TCC-protected, and that launcher only calls `docker start` so it never needs
-to read anything from this project directory. If you move the project, re-run
-`./scripts/install.sh`.
+[`docs/2026-08-23-investigation.md`](docs/2026-08-23-investigation.md) records
+two approaches that look plausible, with the evidence that kills each — so
+nobody spends a day rediscovering them:
 
-## Security notes
-
-- The container's CUPS has permissive access rules, but its port is published
-  **only on 127.0.0.1**. Never change the port mapping in
-  `docker-compose.yml` to `0.0.0.0` — that would expose an unauthenticated
-  print server to your whole network.
-- The printer's admin password is also its `PSE:` field, readable by anyone on
-  the network via unauthenticated SNMP. Consider changing it in the printer's
-  web UI.
-
-## What this project does and does not ship
-
-Everything here is glue: a Dockerfile, a CUPS configuration and some shell
-scripts, all MIT-licensed (see [LICENSE](LICENSE)).
-
-It contains **no Canon code**. The driver itself — `cnijfilter2`, which is
-closed source and redistributed by Canon under its own licence — is fetched at
-image build time from the [Ordissimo
-PPA](https://launchpad.net/~thierry-f/+archive/ubuntu/fork-michael-gruz), which
-packages Canon's official Linux releases. Nothing proprietary is vendored into
-this repository, and building the image means accepting Canon's licence terms
-for that package.
-
-## Layout
-
-```
-docker/
-  Dockerfile           Ubuntu 24.04 + CUPS + cnijfilter2 (amd64, Rosetta)
-  cupsd.conf           bridge CUPS config — no line continuations allowed
-  docker-compose.yml   printer IP and port mapping live here
-  entrypoint.sh        starts cupsd, creates the queue
-scripts/
-  install.sh           build + start + macOS queue + launchd agent
-  uninstall.sh         removes all of the above
-  start-bridge.sh      manual start: waits for Docker, runs `compose up -d`
-
-Installed outside the project by install.sh:
-  ~/Library/Application Support/canon-gm2080-bridge/start-bridge.sh
-                       login launcher (must live outside ~/Documents; see
-                       Troubleshooting)
-  ~/Library/LaunchAgents/com.local.canon-gm2080-bridge.plist
-docs/
-  2026-08-23-investigation.md
-docker/.env                git-ignored; your printer's address lives here
-docker/.env.example        template, committed
-```
+- **AirPrint / IPP Everywhere.** The printer speaks no IPP at all.
+- **Grafting a PPD onto Canon's macOS IJ driver framework.** That framework is
+  installed on many Macs and does implement IVEC, but it needs a per-model
+  binary table Canon never built for the GM series — and no donor model's
+  table fits a single-black, two-tank machine.
