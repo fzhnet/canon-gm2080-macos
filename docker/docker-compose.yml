@@ -1,0 +1,32 @@
+# The queue is recreated from scratch on every boot by entrypoint.sh, so there
+# is deliberately no volume for /etc/cups — configuration lives in this file
+# and in the image, never in mutable container state.
+services:
+  gm2080-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: canon-gm2080-bridge:latest
+    container_name: canon-gm2080-bridge
+    platform: linux/amd64
+    restart: unless-stopped
+
+    # Loopback-only. This is the security boundary for the permissive
+    # cupsd.conf inside — never change this to 0.0.0.0.
+    ports:
+      - "127.0.0.1:6631:631"
+
+    # Values come from docker/.env (git-ignored). Copy .env.example to .env
+    # and set PRINTER_IP before the first run.
+    environment:
+      PRINTER_IP: "${PRINTER_IP:?set PRINTER_IP in docker/.env}"
+      PRINTER_PORT: "${PRINTER_PORT:-9100}"
+      QUEUE_NAME: "${QUEUE_NAME:-GM2080}"
+      QUEUE_INFO: "Canon GM2080 (bridge)"
+      PPD_FILE: "/usr/share/ppd/canongm2080.ppd"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
