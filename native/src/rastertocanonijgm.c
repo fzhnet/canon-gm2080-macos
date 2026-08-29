@@ -43,15 +43,16 @@ start_job(FILE *out, const char *job_id, const char *user,
     ivec_emit(out, "%sStartJob</ivec:operation>"
               "<ivec:param_set servicetype=\"print\">"
               "<ivec:jobID>%s</ivec:jobID>"
-              "<ivec:bidi>0</ivec:bidi>"
-              "<ivec:forcepmdetection>OFF</ivec:forcepmdetection>",
-         IVEC_HEAD, job_id);
+              "<ivec:bidi>0</ivec:bidi>",
+         IVEC_HEAD_VCN, job_id);
+    vcn_element(out, "forcepmdetection", "OFF");
     ivec_element(out, "jobname", title);
     ivec_element(out, "username", user);
     ivec_element(out, "computername", NULL);
-    ivec_emit(out, "<ivec:job_description><![CDATA[%s]]></ivec:job_description>"
-              "<ivec:host_environment>linux</ivec:host_environment>"
-              "</ivec:param_set></ivec:contents></cmd>", uuid);
+    ivec_emit(out, "<ivec:job_description><![CDATA[%s]]></ivec:job_description>",
+              uuid);
+    vcn_element(out, "host_environment", "linux");
+    ivec_emit(out, "%s", IVEC_TAIL);
 }
 
 static void
@@ -95,7 +96,7 @@ set_page_configuration(FILE *out, const char *job_id, int more_pages)
               "<vcn:ijoperation>SetPageConfiguration</vcn:ijoperation>"
               "<vcn:nextpage>%s</vcn:nextpage>"
               "</ivec:param_set></ivec:contents></cmd>",
-         IVEC_HEAD, job_id, more_pages ? "ON" : "OFF");
+         IVEC_HEAD_VCN, job_id, more_pages ? "ON" : "OFF");
 }
 
 static void
@@ -184,7 +185,8 @@ main(int argc, char *argv[])
     cups_page_header2_t header;
     page_buf_t     *pages = NULL;
     int            npages = 0, cap = 0;
-    char           uuid[64];
+    char           uuid[64], padded_id[16];
+    const char     *real_uuid;
 
     if (argc < 6 || argc > 7) {
         fputs("ERROR: rastertocanonijgm job user title copies options [file]\n",
@@ -310,7 +312,15 @@ main(int argc, char *argv[])
         goto fail;
     }
 
-    snprintf(uuid, sizeof(uuid), "%s-%s", job_id, user ? user : "cups");
+    /* Prefer the job's real UUID; fall back to something stable if CUPS did
+     * not supply one, so job_description is never empty. */
+    if ((real_uuid = ivec_job_uuid(num_options, options)))
+        snprintf(uuid, sizeof(uuid), "%s", real_uuid);
+    else
+        snprintf(uuid, sizeof(uuid), "%s-%s", job_id, user ? user : "cups");
+
+    ivec_jobid(padded_id, sizeof(padded_id), job_id);
+    job_id = padded_id;
 
     start_job(stdout, job_id, user, title, uuid);
     set_job_configuration(stdout, job_id);

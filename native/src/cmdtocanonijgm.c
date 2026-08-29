@@ -13,10 +13,10 @@
  *
  *     StartJob / SetJobConfiguration / <Cleaning|TestPrint> / EndJob
  *
- * Two details differ from the print path and are easy to get wrong: the
- * maintenance StartJob puts host_environment in the vcn namespace rather than
- * ivec, and the operation block lists its own parameters BEFORE jobID.  Both
- * are reproduced from Canon's own output.
+ * Several details differ from the print path and are easy to get wrong: the
+ * operation block lists its own parameters BEFORE jobID, and the two paths
+ * disagree about which blocks declare the vcn namespace.  All of it is
+ * reproduced from Canon's own output rather than from a rule.
  *
  * Copyright (c) 2026.  Licensed under the MIT License.
  * Canon, PIXMA and IVEC are trademarks of Canon Inc.; this is not a Canon
@@ -42,16 +42,20 @@ start_job(FILE *out, const char *job_id, const char *uuid)
                    "<ivec:param_set servicetype=\"maintenance\">"
                    "<ivec:jobID>%s</ivec:jobID>"
                    "<ivec:bidi>0</ivec:bidi>",
-              IVEC_HEAD, job_id);
+              IVEC_HEAD_VCN, job_id);
     ivec_element(out, "jobname", NULL);
     ivec_element(out, "username", NULL);
     ivec_element(out, "computername", NULL);
-    /* vcn, not ivec - the print path uses ivec here. */
-    ivec_emit(out, "<ivec:job_description><![CDATA[%s]]></ivec:job_description>"
-                   "<vcn:host_environment>linux</vcn:host_environment>%s",
-              uuid, IVEC_TAIL);
+    ivec_emit(out, "<ivec:job_description><![CDATA[%s]]></ivec:job_description>",
+              uuid);
+    vcn_element(out, "host_environment", "linux");
+    ivec_emit(out, "%s", IVEC_TAIL);
 }
 
+/* Canon declares the vcn namespace on this block even though it uses no vcn
+ * element, while the print path's SetJobConfiguration does not declare it at
+ * all.  Reproduced rather than tidied up: matching the reference output is
+ * worth more here than internal consistency we invented. */
 static void
 set_job_configuration(FILE *out, const char *job_id)
 {
@@ -62,7 +66,7 @@ set_job_configuration(FILE *out, const char *job_id)
                    "<ivec:param_set servicetype=\"maintenance\">"
                    "<ivec:jobID>%s</ivec:jobID>"
                    "<ivec:datetime>%s</ivec:datetime>%s",
-              IVEC_HEAD, job_id, stamp, IVEC_TAIL);
+              IVEC_HEAD_VCN, job_id, stamp, IVEC_TAIL);
 }
 
 static void
@@ -133,8 +137,10 @@ main(int argc, char *argv[])
 {
     FILE *in = stdin;
     char  line[1024];
-    char  uuid[64];
-    const char *job_id, *user;
+    char  uuid[64], padded_id[16];
+    const char *job_id, *user, *real_uuid;
+    int   num_options;
+    cups_option_t *options;
     int   handled = 0, unknown = 0;
 
     if (argc < 6 || argc > 7) {
@@ -152,7 +158,17 @@ main(int argc, char *argv[])
         return 1;
     }
 
-    snprintf(uuid, sizeof(uuid), "%s-%s", job_id, user ? user : "cups");
+    num_options = cupsParseOptions(argv[5], 0, &options);
+
+    if ((real_uuid = ivec_job_uuid(num_options, options)))
+        snprintf(uuid, sizeof(uuid), "%s", real_uuid);
+    else
+        snprintf(uuid, sizeof(uuid), "%s-%s", job_id, user ? user : "cups");
+
+    cupsFreeOptions(num_options, options);
+
+    ivec_jobid(padded_id, sizeof(padded_id), job_id);
+    job_id = padded_id;
 
     /* The envelope is written up front so that a command file containing
      * several operations produces one maintenance job, matching Canon. */
