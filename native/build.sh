@@ -117,20 +117,28 @@ fi
 
 # --------------------------------------------------------------------- ppd
 
-say "Staging PPD"
-cp "${HERE}/canongm2080-native.ppd" "${ROOT}${PPD_DIR}/canongm2080-native.ppd"
-chmod 644 "${ROOT}${PPD_DIR}/canongm2080-native.ppd"
+say "Generating PPDs"
+# One template per GM series; capabilities are identical, only identity
+# strings differ.  See ppd/generate.sh and docs/models.md.
+GENERATED_SERIES=$("${HERE}/ppd/generate.sh" "${ROOT}${PPD_DIR}")
+for s in $GENERATED_SERIES; do
+    lower="$(echo "$s" | tr '[:upper:]' '[:lower:]')"
+    chmod 644 "${ROOT}${PPD_DIR}/canon${lower}-native.ppd"
+    info "canon${lower}-native.ppd"
+done
 
-say "Validating PPD"
+say "Validating PPDs"
 # cupstestppd resolves *cupsFilter paths against the live filesystem, so it
-# always reports the not-yet-installed filter as missing.  Ignore only that
-# one failure - ignoring all of them would make this check meaningless.
-if LC_ALL=C cupstestppd "${ROOT}${PPD_DIR}/canongm2080-native.ppd" 2>&1 |
-       grep -E '\*\*FAIL\*\*' | grep -qv 'cupsFilter'; then
-    LC_ALL=C cupstestppd "${ROOT}${PPD_DIR}/canongm2080-native.ppd" >&2 || true
-    die "PPD has failures beyond the not-yet-installed filter"
-fi
-info "PPD OK"
+# always reports the not-yet-installed filters as missing.  Ignore only those
+# failures - ignoring all of them would make this check meaningless.
+for ppd in "${ROOT}${PPD_DIR}"/canon*-native.ppd; do
+    if LC_ALL=C cupstestppd "$ppd" 2>&1 |
+           grep -E '\*\*FAIL\*\*' | grep -qv 'cupsFilter'; then
+        LC_ALL=C cupstestppd "$ppd" >&2 || true
+        die "$(basename "$ppd") has failures beyond the not-yet-installed filters"
+    fi
+done
+info "all PPDs OK"
 
 # ----------------------------------------------------------------- package
 

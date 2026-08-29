@@ -7,23 +7,40 @@ Canon ships no macOS driver for the GM2000/GM2080 series and the printer
 speaks no driverless protocol, so this implements Canon's own wire format
 directly. See [How it works](#how-it-works).
 
+## Supported models
+
+Canon sells this hardware under different numbers per region. One driver
+covers all four series — their capabilities are identical.
+
+| Series | Retail model | Region | Scanner |
+|---|---|---|---|
+| GM2000 | GM2070 | India, South & SE Asia | no |
+| **GM2080** | **GM2080** | **China** | no |
+| GM4000 | GM4070 | India, South & SE Asia | yes |
+| GM4080 | GM4080 | China | yes |
+
+Only GM2080 has been verified against hardware. Japan's GM2030 / GM4030 may
+also work but are undocumented by Canon's Linux PPDs. Details, evidence and
+how to report a model: [docs/models.md](docs/models.md).
+
 ## Install
 
 ```bash
 sudo installer -pkg dist/CanonGM2080Native-1.0.pkg -target /
-./add-printer.sh 192.168.1.50        # your printer's address
+./add-printer.sh 192.168.1.50            # your printer's address
+./add-printer.sh 192.168.1.50 gm4000     # ...or another series
 ```
 
 The package is unsigned, so double-clicking it is blocked by Gatekeeper; the
 `installer` command above is the intended path. To produce a signed and
 notarized package instead, see [Building](#building).
 
-Installs three files:
+Installs two filters and one PPD per series:
 
 ```
 /Library/Printers/canon-gm2080/rastertocanonijgm     page rendering
 /Library/Printers/canon-gm2080/cmdtocanonijgm        maintenance
-/Library/Printers/PPDs/Contents/Resources/canongm2080-native.ppd
+/Library/Printers/PPDs/Contents/Resources/canongm{2000,2080,4000,4080}-native.ppd
 ```
 
 ## Maintenance

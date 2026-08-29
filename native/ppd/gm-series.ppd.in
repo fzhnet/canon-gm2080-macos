@@ -1,18 +1,25 @@
 *PPD-Adobe: "4.3"
-*% PPD for the Canon GM2000/GM2080 series, for use with the native
+*% Template for the Canon GM series, for use with the native
 *% rastertocanonijgm filter.  Contains no Canon code; the page geometry
 *% matches Canon's own driver so output lands in the same place.
+*%
+*% Generated - do not edit the .ppd files, edit this .ppd.in.
+*%
+*% One template covers all four GM series because their capabilities are
+*% identical: diffing the PageSize, InputSlot, Duplex, MediaType and
+*% Resolution options across Canon's own canongm2000/2080/4000/4080 PPDs
+*% yields zero differences.  Only the identity strings below vary.
 *FormatVersion: "4.3"
 *FileVersion: "1.0"
 *LanguageVersion: English
 *LanguageEncoding: ISOLatin1
-*PCFileName: "CNGM2080.PPD"
+*PCFileName: "CN@SERIES@.PPD"
 
 *Manufacturer: "Canon"
-*ModelName: "Canon GM2080 series"
-*ShortNickName: "Canon GM2080 series"
-*NickName: "Canon GM2080 series (native)"
-*Product: "(Canon GM2080 series)"
+*ModelName: "Canon @SERIES@ series"
+*ShortNickName: "Canon @SERIES@ series"
+*NickName: "Canon @SERIES@ series (native)"
+*Product: "(Canon @SERIES@ series)"
 *PSVersion: "(3010.000) 705"
 *Throughput: "13"
 

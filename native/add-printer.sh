@@ -8,13 +8,22 @@ set -euo pipefail
 
 PRINTER_IP="${1:-}"
 QUEUE="${2:-Canon_GM2080}"
-PPD="/Library/Printers/PPDs/Contents/Resources/canongm2080-native.ppd"
+# Default to the series this driver was developed and tested against.  The
+# other GM series use identical PPDs; pass one as the second argument.
+SERIES="${2:-gm2080}"
+PPD="/Library/Printers/PPDs/Contents/Resources/canon$(echo "$SERIES" | tr '[:upper:]' '[:lower:]')-native.ppd"
 FILTER="/Library/Printers/canon-gm2080/rastertocanonijgm"
 
 die() { printf '\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 [[ -n "$PRINTER_IP" ]] || die "usage: $0 <printer-ip> [queue-name]"
-[[ -f "$PPD"    ]] || die "driver not installed: $PPD is missing. Run the .pkg first."
+if [[ ! -f "$PPD" ]]; then
+    echo "No PPD for series '${SERIES}'. Installed series:" >&2
+    ls /Library/Printers/PPDs/Contents/Resources/canongm*-native.ppd 2>/dev/null |
+        sed 's|.*/canon\(.*\)-native.ppd|    \1|' >&2 ||
+        echo "    (none - run the .pkg first)" >&2
+    exit 1
+fi
 [[ -x "$FILTER" ]] || die "driver not installed: $FILTER is missing. Run the .pkg first."
 
 # Port 9100 is the printer's raw port; the GM series exposes no IPP at all.
