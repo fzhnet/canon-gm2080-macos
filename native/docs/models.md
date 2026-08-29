@@ -87,7 +87,7 @@ named for them. If a GM2030 reports `MDL:GM2000 series`, the GM2000 PPD should
 work:
 
 ```bash
-./add-printer.sh <printer-ip> gm2000
+./add-printer.sh <printer-ip> <queue-name> gm2000
 ```
 
 Untested. Reports welcome.
@@ -97,10 +97,12 @@ Untested. Reports welcome.
 The installer lays down all four PPDs. `add-printer.sh` defaults to GM2080:
 
 ```bash
-./add-printer.sh 192.168.1.50            # GM2080
-./add-printer.sh 192.168.1.50 gm4000     # GM4070, for example
+./add-printer.sh 192.168.1.50                        # GM2080, default queue name
+./add-printer.sh 192.168.1.50 Office_GM4070 gm4000    # GM4070, for example
 ```
 
+The queue name and the series are separate arguments because they are
+unrelated choices; the series only selects which PPD the queue is built from.
 Picking the "wrong" one of the four will still print correctly, since the
 capabilities are identical — it only changes the name macOS displays.
 

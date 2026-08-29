@@ -5,3 +5,6 @@ bridge/docker/.env
 native/build/
 native/dist/
 native/rastertocanonijgm
+
+# macOS Finder metadata.
+.DS_Store

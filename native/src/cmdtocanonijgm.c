@@ -30,7 +30,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <cups/cups.h>
 
 /* ------------------------------------------------------------- operations */
@@ -46,8 +45,7 @@ start_job(FILE *out, const char *job_id, const char *uuid)
     ivec_element(out, "jobname", NULL);
     ivec_element(out, "username", NULL);
     ivec_element(out, "computername", NULL);
-    ivec_emit(out, "<ivec:job_description><![CDATA[%s]]></ivec:job_description>",
-              uuid);
+    ivec_cdata_element(out, "job_description", uuid);
     vcn_element(out, "host_environment", "linux");
     ivec_emit(out, "%s", IVEC_TAIL);
 }

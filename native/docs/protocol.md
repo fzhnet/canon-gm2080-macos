@@ -50,6 +50,16 @@ Canon puts a bare UUID there. CUPS supplies the real one in the filter options
 as `job-uuid=urn:uuid:…`; strip the URN prefix. Falls back to
 `<jobid>-<user>` when absent so the element is never empty.
 
+## Element values must be XML-escaped
+
+`jobname` and `username` carry a job title and a user name — whatever the
+person printing typed. Canon's reference captures always had these empty, so
+the wire format says nothing about escaping, but the blocks are XML and the
+firmware parses them: a document called `P&L <draft>.pdf` would otherwise emit
+a malformed StartJob, and a crafted title could close `jobname` early and
+inject elements. `job_description` is CDATA, which needs the separate `]]>`
+split. Both are handled in `ivec.c`, the only place that writes element text.
+
 ## Two Canon defects this driver does not reproduce
 
 **1. A corrupted XML declaration.** In the maintenance `SetJobConfiguration`

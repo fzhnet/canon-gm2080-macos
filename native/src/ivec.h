@@ -32,6 +32,10 @@ void ivec_element(FILE *out, const char *tag, const char *value);
  * vcn:host_environment and ivec:host_environment are different elements. */
 void vcn_element(FILE *out, const char *tag, const char *value);
 
+/* Emits <ivec:tag><![CDATA[value]]></ivec:tag>, splitting any "]]>" in the
+ * value so it cannot terminate the section early. */
+void ivec_cdata_element(FILE *out, const char *tag, const char *value);
+
 /* Local time as YYYYMMDDhhmmss, the format SetJobConfiguration expects. */
 void ivec_datetime(char *buf, size_t len);
 

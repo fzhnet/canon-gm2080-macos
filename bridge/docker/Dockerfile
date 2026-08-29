@@ -34,7 +34,13 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 631
 
+# `lpstat -r` exits 0 even when the scheduler is down - it just prints
+# "scheduler is not running" - so testing its status can never fail and the
+# container would report healthy forever after a cupsd crash.  Grep the output,
+# the same way entrypoint.sh's scheduler_up() does, and confirm the queue is
+# actually being served rather than only that cupsd answers.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD lpstat -r >/dev/null 2>&1 || exit 1
+  CMD lpstat -r 2>/dev/null | grep -q 'is running' \
+      && lpstat -p "${QUEUE_NAME:-GM2080}" >/dev/null 2>&1 || exit 1
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

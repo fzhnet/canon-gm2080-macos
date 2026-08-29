@@ -43,6 +43,11 @@
 *% stated here so that disabling it is a visible decision rather than a
 *% silently inherited one.
 *cupsSNMPSupplies: True
+
+*% The printer has no copies command of its own, so CUPS must replicate pages
+*% upstream.  Without this the copy count is silently dropped and "3 copies"
+*% prints one.  Canon's own PPD for this model declares the same thing.
+*cupsManualCopies: True
 *LandscapeOrientation: Plus90
 *VariablePaperSize: False
 *FileSystem: False

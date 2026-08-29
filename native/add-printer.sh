@@ -3,20 +3,28 @@
 # Creates the macOS print queue for a Canon GM2080 after the driver package
 # has been installed.
 #
-#     ./add-printer.sh 192.168.1.50 [queue-name]
+#     ./add-printer.sh <printer-ip> [queue-name] [series]
+#
+#     ./add-printer.sh 192.168.1.50
+#     ./add-printer.sh 192.168.1.50 Office_Mono
+#     ./add-printer.sh 192.168.1.50 Office_GM4070 gm4000
+#
+# Queue name and series are separate arguments on purpose: they are unrelated
+# choices, and folding them into one positional made every custom queue name
+# look like a missing PPD.
 set -euo pipefail
 
 PRINTER_IP="${1:-}"
 QUEUE="${2:-Canon_GM2080}"
-# Default to the series this driver was developed and tested against.  The
-# other GM series use identical PPDs; pass one as the second argument.
-SERIES="${2:-gm2080}"
-PPD="/Library/Printers/PPDs/Contents/Resources/canon$(echo "$SERIES" | tr '[:upper:]' '[:lower:]')-native.ppd"
+# The series this driver was developed and tested against.  The other GM
+# series ship identical PPDs - see docs/models.md.
+SERIES="$(echo "${3:-gm2080}" | tr '[:upper:]' '[:lower:]')"
+PPD="/Library/Printers/PPDs/Contents/Resources/canon${SERIES}-native.ppd"
 FILTER="/Library/Printers/canon-gm2080/rastertocanonijgm"
 
 die() { printf '\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
-[[ -n "$PRINTER_IP" ]] || die "usage: $0 <printer-ip> [queue-name]"
+[[ -n "$PRINTER_IP" ]] || die "usage: $0 <printer-ip> [queue-name] [series]"
 if [[ ! -f "$PPD" ]]; then
     echo "No PPD for series '${SERIES}'. Installed series:" >&2
     ls /Library/Printers/PPDs/Contents/Resources/canongm*-native.ppd 2>/dev/null |
@@ -36,7 +44,7 @@ fi
 lpadmin -p "$QUEUE" \
         -v "socket://${PRINTER_IP}:9100" \
         -P "$PPD" \
-        -D "Canon GM2080 series" \
+        -D "Canon $(echo "$SERIES" | tr '[:lower:]' '[:upper:]') series" \
         -L "$PRINTER_IP" \
         -E \
         -o printer-is-shared=false

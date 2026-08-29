@@ -49,8 +49,7 @@ start_job(FILE *out, const char *job_id, const char *user,
     ivec_element(out, "jobname", title);
     ivec_element(out, "username", user);
     ivec_element(out, "computername", NULL);
-    ivec_emit(out, "<ivec:job_description><![CDATA[%s]]></ivec:job_description>",
-              uuid);
+    ivec_cdata_element(out, "job_description", uuid);
     vcn_element(out, "host_environment", "linux");
     ivec_emit(out, "%s", IVEC_TAIL);
 }
@@ -168,10 +167,30 @@ lookup(const ivec_map_t *table, const char *key, const char *fallback)
 
 /* ------------------------------------------------------------------- main */
 
+/* Where a page's PWG bytes live inside the single spool file. */
 typedef struct {
-    int  fd;
-    long size;
+    off_t off;
+    long  size;
 } page_buf_t;
+
+/* One temp file holds every page.  cupsd exports TMPDIR pointing inside the
+ * sandbox it runs filters in, so a hardcoded /private/tmp is not guaranteed
+ * to be writable when the filter runs for real rather than by hand. */
+static int
+open_spool(void)
+{
+    const char *tmpdir = getenv("TMPDIR");
+    char        tmpl[1024];
+    int         fd;
+
+    snprintf(tmpl, sizeof(tmpl), "%s/gmpwg.XXXXXX",
+             (tmpdir && *tmpdir) ? tmpdir : "/tmp");
+
+    if ((fd = mkstemp(tmpl)) >= 0)
+        unlink(tmpl);
+
+    return fd;
+}
 
 int
 main(int argc, char *argv[])
@@ -182,9 +201,10 @@ main(int argc, char *argv[])
     const char     *media, *papertype, *colormode;
     int            duplex, infd, i;
     cups_raster_t  *ras_in;
-    cups_page_header2_t header;
+    cups_page_header2_t header, first;
     page_buf_t     *pages = NULL;
-    int            npages = 0, cap = 0;
+    int            npages = 0, cap = 0, have_first = 0;
+    int            spool = -1, job_open = 0;
     char           uuid[64], padded_id[16];
     const char     *real_uuid;
 
@@ -200,18 +220,8 @@ main(int argc, char *argv[])
 
     num_options = cupsParseOptions(argv[5], 0, &options);
 
-    val       = cupsGetOption("PageSize", num_options, options);
-    media     = lookup(MEDIA, val, "iso_a4_210x297mm");
-
-    val       = cupsGetOption("MediaType", num_options, options);
-    papertype = lookup(MEDIATYPE, val, "stationery");
-
     /* The GM series is a single-black machine; colour is never meaningful. */
     colormode = "monochrome";
-
-    val    = cupsGetOption("Duplex", num_options, options);
-    if (!val) val = cupsGetOption("sides", num_options, options);
-    duplex = (val && strncasecmp(val, "one", 3) && strcasecmp(val, "None"));
 
     if (argc == 7) {
         if ((infd = open(argv[6], O_RDONLY)) < 0) {
@@ -232,30 +242,39 @@ main(int argc, char *argv[])
      * its SendData command can declare an exact byte count.  Canon sends one
      * VendorCmd+SendData pair per page, not one for the whole job. */
     while (cupsRasterReadHeader2(ras_in, &header)) {
-        char          tmpl[] = "/private/tmp/gmpwg.XXXXXX";
-        int           fd;
         cups_raster_t *ras_out;
         unsigned char *line;
         unsigned      y;
-        struct stat   st;
+        off_t         start, end;
+        int           truncated = 0;
 
-        if ((fd = mkstemp(tmpl)) < 0) {
-            fprintf(stderr, "ERROR: cannot create temp file: %s\n",
+        /* The first page's header is the authority on how the job was
+         * actually rasterised - see the duplex handling below. */
+        if (!have_first) {
+            first      = header;
+            have_first = 1;
+        }
+
+        if (spool < 0 && (spool = open_spool()) < 0) {
+            fprintf(stderr, "ERROR: cannot create spool file: %s\n",
                     strerror(errno));
             goto fail;
         }
-        unlink(tmpl);
 
-        if (!(ras_out = cupsRasterOpen(fd, CUPS_RASTER_WRITE_PWG))) {
+        if ((start = lseek(spool, 0, SEEK_END)) < 0) {
+            fprintf(stderr, "ERROR: cannot append to spool: %s\n",
+                    strerror(errno));
+            goto fail;
+        }
+
+        if (!(ras_out = cupsRasterOpen(spool, CUPS_RASTER_WRITE_PWG))) {
             fputs("ERROR: cannot open PWG raster writer\n", stderr);
-            close(fd);
             goto fail;
         }
 
         if (!(line = malloc(header.cupsBytesPerLine))) {
             fputs("ERROR: out of memory for raster line\n", stderr);
             cupsRasterClose(ras_out);
-            close(fd);
             goto fail;
         }
 
@@ -263,7 +282,6 @@ main(int argc, char *argv[])
             fputs("ERROR: cannot write PWG page header\n", stderr);
             free(line);
             cupsRasterClose(ras_out);
-            close(fd);
             goto fail;
         }
 
@@ -271,19 +289,29 @@ main(int argc, char *argv[])
          * geometry the printer expects, so this is a container change only. */
         for (y = 0; y < header.cupsHeight; y ++) {
             if (cupsRasterReadPixels(ras_in, line, header.cupsBytesPerLine)
-                    < header.cupsBytesPerLine)
+                    < header.cupsBytesPerLine ||
+                cupsRasterWritePixels(ras_out, line, header.cupsBytesPerLine)
+                    < header.cupsBytesPerLine) {
+                truncated = 1;
                 break;
-            if (cupsRasterWritePixels(ras_out, line, header.cupsBytesPerLine)
-                    < header.cupsBytesPerLine)
-                break;
+            }
         }
 
         free(line);
         cupsRasterClose(ras_out);
 
-        if (fstat(fd, &st) < 0 || st.st_size == 0) {
+        /* The header just written promises cupsHeight lines.  Shipping fewer
+         * would leave the printer waiting mid-page for rows that never come,
+         * so a short page fails the job rather than being sent as complete. */
+        if (truncated) {
+            fprintf(stderr,
+                    "ERROR: page %d ended after %u of %u lines\n",
+                    npages + 1, y, header.cupsHeight);
+            goto fail;
+        }
+
+        if ((end = lseek(spool, 0, SEEK_CUR)) < 0 || end <= start) {
             fputs("ERROR: page produced no raster data\n", stderr);
-            close(fd);
             goto fail;
         }
 
@@ -292,14 +320,13 @@ main(int argc, char *argv[])
             cap = cap ? cap * 2 : 8;
             if (!(grown = realloc(pages, (size_t)cap * sizeof(*pages)))) {
                 fputs("ERROR: out of memory tracking pages\n", stderr);
-                close(fd);
                 goto fail;
             }
             pages = grown;
         }
 
-        pages[npages].fd   = fd;
-        pages[npages].size = (long)st.st_size;
+        pages[npages].off  = start;
+        pages[npages].size = (long)(end - start);
         npages ++;
 
         fprintf(stderr, "PAGE: %d 1\n", npages);
@@ -311,6 +338,27 @@ main(int argc, char *argv[])
         fputs("ERROR: no pages in input raster\n", stderr);
         goto fail;
     }
+
+    /* Media and duplex come from the page header first, and only then from the
+     * option string.  The header is what the RIP actually produced, so it
+     * already reflects PPD defaults that never appear in argv[5] - a queue
+     * whose default is two-sided would otherwise print single-sided.  (Tumble
+     * needs no handling here: it rides along in the PWG header, which is
+     * copied through untouched, exactly as Canon's own driver leaves it.) */
+    val       = cupsGetOption("PageSize", num_options, options);
+    if (!val && *first.cupsPageSizeName)
+        val = first.cupsPageSizeName;
+    media     = lookup(MEDIA, val, "iso_a4_210x297mm");
+
+    val       = cupsGetOption("MediaType", num_options, options);
+    if (!val && *first.MediaType)
+        val = first.MediaType;
+    papertype = lookup(MEDIATYPE, val, "stationery");
+
+    val    = cupsGetOption("Duplex", num_options, options);
+    if (!val) val = cupsGetOption("sides", num_options, options);
+    duplex = (val && strncasecmp(val, "one", 3) && strcasecmp(val, "None"))
+             || first.Duplex;
 
     /* Prefer the job's real UUID; fall back to something stable if CUPS did
      * not supply one, so job_description is never empty. */
@@ -325,46 +373,63 @@ main(int argc, char *argv[])
     start_job(stdout, job_id, user, title, uuid);
     set_job_configuration(stdout, job_id);
     set_configuration(stdout, job_id, media, papertype, colormode, duplex);
+    job_open = 1;
 
     for (i = 0; i < npages; i ++) {
         char   buf[65536];
-        ssize_t n;
         long   remaining = pages[i].size;
 
         /* nextpage stays ON until the final page, matching Canon. */
         set_page_configuration(stdout, job_id, i < npages - 1);
         send_data(stdout, job_id, pages[i].size);
-        fflush(stdout);
 
-        lseek(pages[i].fd, 0, SEEK_SET);
-        while (remaining > 0 &&
-               (n = read(pages[i].fd, buf,
-                         remaining < (long)sizeof(buf)
-                             ? (size_t)remaining : sizeof(buf))) > 0) {
+        if (lseek(spool, pages[i].off, SEEK_SET) < 0) {
+            fprintf(stderr, "ERROR: cannot seek spool: %s\n", strerror(errno));
+            goto fail;
+        }
+
+        while (remaining > 0) {
+            ssize_t n = read(spool, buf,
+                             remaining < (long)sizeof(buf)
+                                 ? (size_t)remaining : sizeof(buf));
+
+            if (n <= 0) {
+                fprintf(stderr, "ERROR: spool read failed with %ld bytes of "
+                                "page %d left: %s\n",
+                        remaining, i + 1, n < 0 ? strerror(errno) : "short file");
+                goto fail;
+            }
+
             if (fwrite(buf, 1, (size_t)n, stdout) != (size_t)n) {
                 fputs("ERROR: short write sending raster\n", stderr);
                 goto fail;
             }
-            remaining -= n;
-        }
-        close(pages[i].fd);
 
-        if (remaining != 0) {
-            fputs("ERROR: truncated page data\n", stderr);
-            goto fail;
+            remaining -= n;
         }
     }
 
     end_job(stdout, job_id);
+    job_open = 0;
     fflush(stdout);
 
+    close(spool);
     free(pages);
     cupsFreeOptions(num_options, options);
     return 0;
 
 fail:
-    for (i = 0; i < npages; i ++)
-        close(pages[i].fd);
+    /* SendData has already promised the printer an exact byte count.  Bailing
+     * out silently leaves it waiting mid-job for data that will never arrive,
+     * so close the job even though it is incomplete - if stdout is itself the
+     * thing that broke, this write simply fails too and costs nothing. */
+    if (job_open) {
+        end_job(stdout, job_id);
+        fflush(stdout);
+    }
+
+    if (spool >= 0)
+        close(spool);
     free(pages);
     cupsFreeOptions(num_options, options);
     return 1;

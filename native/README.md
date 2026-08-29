@@ -27,8 +27,9 @@ how to report a model: [docs/models.md](docs/models.md).
 
 ```bash
 sudo installer -pkg dist/CanonGM2080Native-1.0.pkg -target /
-./add-printer.sh 192.168.1.50            # your printer's address
-./add-printer.sh 192.168.1.50 gm4000     # ...or another series
+./add-printer.sh 192.168.1.50                        # your printer's address
+./add-printer.sh 192.168.1.50 Office_Mono             # ...with a queue name
+./add-printer.sh 192.168.1.50 Office_GM4070 gm4000    # ...and another series
 ```
 
 The package is unsigned, so double-clicking it is blocked by Gatekeeper; the
@@ -68,7 +69,7 @@ consumes a lot of ink from a tank you refill by hand.
 ## Ink levels
 
 ```bash
-./ink-level.sh 10.168.10.113
+./ink-level.sh 192.168.1.50
 ```
 
 ```
@@ -164,16 +165,19 @@ produces, reproduce them. `docs/` in the parent directory records the evidence.
   `datasize` equal to its actual payload.
 - Maintenance blocks match Canon's operation names, `servicetype`, parameter
   values, and field order.
+- Namespace prefixes and per-block namespace declarations match Canon on all
+  12 captured blocks. Every remaining byte of difference is accounted for and
+  deliberate — see [docs/protocol.md](docs/protocol.md).
+- Job title and user name are XML-escaped, so a document called
+  `P&L <draft>.pdf` still produces well-formed blocks.
 
 ### Not yet verified
 
 - **Nothing has been printed on paper.** Every check above is a byte-level
   comparison against Canon's driver, not a physical print.
-- Our maintenance blocks are ~42 bytes larger than Canon's. The likely cause is
-  that Canon omits the unused `xmlns:vcn` declaration on non-`StartJob`
-  maintenance blocks while this driver always emits both namespaces. An unused
-  namespace declaration is valid XML and should be ignored, but it has not been
-  confirmed against the device.
+- The filter has never run under `cupsd`'s sandbox, only by hand. It now uses
+  the `TMPDIR` that CUPS exports rather than a hardcoded path, which is the
+  documented contract, but that path has not been exercised for real.
 
 ## Licence
 
