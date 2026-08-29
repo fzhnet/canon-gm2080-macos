@@ -1,5 +1,7 @@
 # Canon GM2080 on macOS
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 Canon ships **no macOS driver** for the GM2000/GM2080 series, and the printer
 supports **no driverless protocol** — no AirPrint, no IPP, no PDF, no PCL. This
 repository makes it print anyway, two different ways.
@@ -28,22 +30,42 @@ cost is a container that has to be running whenever you print.
 
 ## native — install
 
+Download the package from [Releases](../../releases/latest), then:
+
 ```bash
-cd native
-./build.sh
+sudo installer -pkg CanonGM2080Native-1.0.pkg -target /
+./native/add-printer.sh <printer-ip>
+```
+
+Or build it yourself — needs the Xcode command line tools
+(`xcode-select --install`):
+
+```bash
+cd native && ./build.sh
 sudo installer -pkg dist/CanonGM2080Native-1.0.pkg -target /
 ./add-printer.sh <printer-ip>
 ```
 
 The package is unsigned, so double-clicking it is blocked by Gatekeeper; the
-`installer` command above is the intended path. Building needs the Xcode
-command line tools (`xcode-select --install`).
+`installer` command above is the intended path.
 
-Installs exactly two files:
+When adding the printer by hand in System Settings, set **Protocol** to
+**HP Jetdirect — Socket**, not IPP. IPP is the one protocol this printer does
+not speak, and it is what macOS selects by default.
+
+Installs two filters and one PPD per model series:
 
 ```
-/Library/Printers/canon-gm2080/rastertocanonijgm
-/Library/Printers/PPDs/Contents/Resources/canongm2080-native.ppd
+/Library/Printers/canon-gm2080/rastertocanonijgm     page rendering
+/Library/Printers/canon-gm2080/cmdtocanonijgm        maintenance
+/Library/Printers/PPDs/Contents/Resources/canongm{2000,2080,4000,4080}-native.ppd
+```
+
+Maintenance and ink levels:
+
+```bash
+./native/maintenance.sh nozzle          # nozzle check, clean, deepclean, align
+./native/ink-level.sh <printer-ip>      # read supply levels over SNMP
 ```
 
 ## bridge — install
@@ -98,15 +120,18 @@ determined, are in
 
 **Verified for the native driver:**
 
-- Output is byte-structurally identical to Canon's own driver: same six
-  command blocks in the same order, same field values, for both single-page
-  and multi-page jobs (`nextpage` ON/ON/OFF across three pages, one PWG stream
-  per page, every declared `datasize` equal to its actual payload).
+- Output is byte-structurally identical to Canon's own driver: the same
+  command blocks in the same order, with the same namespace prefixes and
+  per-block namespace declarations, for both single-page and multi-page jobs
+  (`nextpage` ON/ON/OFF across three pages, one PWG stream per page, every
+  declared `datasize` equal to its actual payload).
 - Raster geometry matches Canon exactly — 4800×6826 at 600 dpi for A4,
   14400 bytes per line, 8 bits per colour, 24 bits per pixel, sRGB.
 - Media and paper-type tables were read back from Canon's driver rather than
   guessed.
 - Compiles warning-free as a universal binary; the PPD passes `cupstestppd`.
+- Job titles and user names are XML-escaped, so a file named `P&L <draft>.pdf`
+  still produces well-formed command blocks.
 
 **Not verified for either approach:** that the printer accepts the stream and
 produces a correct page. That needs paper.

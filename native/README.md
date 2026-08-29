@@ -1,5 +1,7 @@
 # Canon GM2080 — native macOS driver
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 A real CUPS driver: two small filters and a PPD, installed by a `.pkg`.
 No Docker, no Rosetta, no Canon binaries. Universal (arm64 + x86_64).
 
