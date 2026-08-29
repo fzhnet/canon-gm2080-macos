@@ -30,6 +30,12 @@
 *% Maintenance operations. Clean and PrintSelfTestPage are the standard
 *% CUPS spellings; the com.canon.* names are vendor extensions.
 *cupsCommands: "Clean PrintSelfTestPage com.canon.deepclean com.canon.autoalignment"
+
+*% The printer answers the standard Printer MIB, so the stock socket backend
+*% can read supply levels over SNMP.  True is already the CUPS default; it is
+*% stated here so that disabling it is a visible decision rather than a
+*% silently inherited one.
+*cupsSNMPSupplies: True
 *LandscapeOrientation: Plus90
 *VariablePaperSize: False
 *FileSystem: False

@@ -48,6 +48,34 @@ Start with `nozzle`. If the pattern has gaps, run `clean`, then `nozzle`
 again. Only reach for `deepclean` if a normal clean did not fix it — it
 consumes a lot of ink from a tank you refill by hand.
 
+## Ink levels
+
+```bash
+./ink-level.sh 10.168.10.113
+```
+
+```
+  Canon Black Ink Tank     [###                     ]  14%  LOW - refill soon
+  Fixed Ink Absorber 1     [###################     ]  81%
+  Fixed Ink Absorber 2     [#################       ]  71%
+```
+
+The printer answers the standard Printer MIB over SNMP, so this reads the
+levels straight from the device. The absorbers are service parts that fill up
+as the printer cleans itself; only the ink tank is refillable.
+
+### Why Printers & Scanners shows "no information"
+
+CUPS refreshes its own supply figures only while a job is running: the socket
+backend queries SNMP as it prints and reports the result back. Until the queue
+has printed at least once there is nothing cached, and the Supply Levels tab is
+empty. Print anything and it populates.
+
+If you are still using the container bridge, the panel can stay empty even
+after printing, because macOS is then talking to CUPS inside the container
+rather than to the printer. The native driver talks to the printer directly and
+does not have that problem.
+
 ## Building
 
 ```bash
