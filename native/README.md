@@ -168,6 +168,10 @@ produces, reproduce them. `docs/` in the parent directory records the evidence.
 
 ### Verified
 
+- **It prints.** Confirmed on a GM2080 (firmware 1.050), macOS 26.5, Apple
+  Silicon: installed from the package, added with `add-printer.sh`, and printed
+  through a real CUPS queue — which also exercises the filter under `cupsd`'s
+  sandbox and the `TMPDIR` it exports.
 - Raster geometry matches Canon exactly: 4800 × 6826 at 600 dpi, 14400
   bytes/line, 8 bpc, 24 bpp, sRGB — the imageable area, not the full sheet.
 - Multi-page structure matches: one `VendorCmd`+`SendData` per page,
@@ -181,13 +185,14 @@ produces, reproduce them. `docs/` in the parent directory records the evidence.
 - Job title and user name are XML-escaped, so a document called
   `P&L <draft>.pdf` still produces well-formed blocks.
 
-### Not yet verified
+### Still open
 
-- **Nothing has been printed on paper.** Every check above is a byte-level
-  comparison against Canon's driver, not a physical print.
-- The filter has never run under `cupsd`'s sandbox, only by hand. It now uses
-  the `TMPDIR` that CUPS exports rather than a hardcoded path, which is the
-  documented contract, but that path has not been exercised for real.
+- Only GM2080 has been run against hardware. The other three series use PPDs
+  generated from the same template and should behave identically, but that is
+  unconfirmed — see [docs/models.md](docs/models.md).
+- `systemclean` is the one maintenance command whose `type` value is inferred
+  rather than captured; the other four were read back from Canon's driver.
+  [docs/protocol.md](docs/protocol.md) has the reasoning.
 
 ## Licence
 

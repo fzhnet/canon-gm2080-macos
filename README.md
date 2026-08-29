@@ -14,10 +14,10 @@ Developed against a GM2080 (firmware 1.050) on macOS 26.5, Apple Silicon.
 | Dependencies | none | Docker Desktop |
 | Architecture | arm64 + x86_64 native | amd64 under Rosetta |
 | Canon code | none | Canon's official closed-source driver |
-| Status | **experimental — never tested on paper** | **experimental — never tested on paper** |
+| Status | **works — confirmed printing on a GM2080** | works, but unconfirmed on paper |
 
-Neither has been confirmed to put ink on a page. Everything short of that is
-verified; see [Status](#status) for exactly what that means.
+The native driver has been confirmed end to end: installed from the package,
+added as a queue, and printed. See [Status](#status) for what else is checked.
 
 ## Which one to use
 
@@ -120,6 +120,9 @@ determined, are in
 
 **Verified for the native driver:**
 
+- **The printer accepts the stream and prints.** Confirmed on a GM2080
+  (firmware 1.050) from macOS 26.5 on Apple Silicon, through a real CUPS queue
+  — which also exercises the filter under `cupsd`'s sandbox.
 - Output is byte-structurally identical to Canon's own driver: the same
   command blocks in the same order, with the same namespace prefixes and
   per-block namespace declarations, for both single-page and multi-page jobs
@@ -133,8 +136,11 @@ determined, are in
 - Job titles and user names are XML-escaped, so a file named `P&L <draft>.pdf`
   still produces well-formed command blocks.
 
-**Not verified for either approach:** that the printer accepts the stream and
-produces a correct page. That needs paper.
+**Still open:** only the GM2080 has been run against hardware. The GM2000,
+GM4000 and GM4080 PPDs are generated from the same template and should behave
+identically, but nobody has confirmed that on a device — see
+[`native/docs/models.md`](native/docs/models.md). The `bridge/` path has not
+been printed through either.
 
 If you test it, please open an issue saying what happened — success or not.
 
