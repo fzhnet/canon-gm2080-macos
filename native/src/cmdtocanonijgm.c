@@ -115,6 +115,18 @@ dispatch(FILE *out, const char *job_id, const char *cmd)
         return 1;
     }
 
+    /* System cleaning - Canon's most aggressive purge, its own utility warns
+     * it "consumes a large amount of ink".  "choke" sits in the same type enum
+     * as regular and deep inside Canon's IVEC command bundle, but unlike those
+     * two it could not be captured from a running driver: cnijfilter2 never
+     * emits it, and the printer answers no queries on port 9100.  So the
+     * operation and parameter shape are known exactly and only the label
+     * mapping is inferred.  See docs/protocol.md. */
+    if (!strcasecmp(cmd, "com.canon.systemclean")) {
+        cleaning(out, job_id, "choke", "all");
+        return 1;
+    }
+
     if (!strcasecmp(cmd, "PrintSelfTestPage")) {
         test_print(out, job_id, "nozzle_check");
         return 1;

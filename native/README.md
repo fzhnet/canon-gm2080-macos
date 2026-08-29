@@ -50,8 +50,16 @@ Installs two filters and one PPD per series:
 ./maintenance.sh nozzle       # print a nozzle check pattern
 ./maintenance.sh clean        # clean the print head
 ./maintenance.sh deepclean    # deep clean (much more ink; asks first)
+./maintenance.sh systemclean  # system clean (a lot of ink; unverified)
 ./maintenance.sh align        # auto print head alignment
 ```
+
+The printer's web UI has three more — roller cleaning, platen cleaning and
+printing the alignment values. They are not here because their wire format is
+not IVEC XML and could not be established from any Canon binary or capture;
+use the web UI for those. `systemclean` is implemented but its type value is
+inferred rather than captured, so it asks you to type a confirmation.
+[docs/protocol.md](docs/protocol.md) has the evidence for each.
 
 Add a queue name as a second argument if it is not `Canon_GM2080`.
 

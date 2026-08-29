@@ -60,6 +60,51 @@ a malformed StartJob, and a crafted title could close `jobname` early and
 inject elements. `job_description` is CDATA, which needs the separate `]]>`
 split. Both are handled in `ivec.c`, the only place that writes element text.
 
+## Maintenance coverage, and what is missing
+
+The printer's own web UI offers eight maintenance functions. This driver
+implements five of them.
+
+| Web UI | IVEC | Status |
+|---|---|---|
+| 打印喷嘴检查图案 nozzle check | `TestPrint type=nozzle_check` | captured |
+| 清洗 clean | `Cleaning type=regular inkgroup=all` | captured |
+| 深度清洗 deep clean | `Cleaning type=deep inkgroup=all` | captured |
+| 自动打印头对齐 auto alignment | `TestPrint type=auto_registration` | captured |
+| 墨水系统冲洗 system clean | `Cleaning type=choke inkgroup=all` | **inferred** |
+| 打印打印头对齐数值 | — | not implemented |
+| 滚轴清洁 roller cleaning | — | not implemented |
+| 底板清洁 platen cleaning | — | not implemented |
+
+"Captured" means the exact bytes were read back from Canon's Linux driver
+running against a `file://` queue. `cnijfilter2` exposes only three commands,
+so the other two came from Canon's macOS utility bundles instead.
+
+**Why `choke` is only inferred.** The full `Cleaning`/`TestPrint` type enum in
+`CIJUtilityCommand2.bundle` is `regular`, `deep`, `choke`, `nozzle_check`,
+`lf_adjust`, `auto`, with `inkgroup` values `all`, `group1`…`group3`, `none`.
+`choke` is the only member that fits a system clean, and Canon's utility has
+matching `SystemCleaningConfirmationGuide` strings ("系统清洗消耗大量墨水").
+The operation and parameter shape are therefore exact; only the mapping from
+the menu label to `choke` is an inference. It cannot be settled from here:
+`cnijfilter2` never emits it, and the printer answers nothing on port 9100 —
+a `GetCapability` sent there returns zero bytes, because 9100 is a one-way
+data stream. Canon's utility gets its answers over BJNP/CHMP on UDP 8611,
+which this printer does not expose.
+
+**Why the last three are absent.** Roller and platen cleaning are not IVEC XML
+at all. `CIJUtilityControl2.bundle` has `cijPrinterCommandRollerCleaning:` and
+`cijPrinterCommandPlatenCleaning:` methods, but the only XML templates in that
+bundle are `GetStatus`, `GetCapability` and `VendorCmd`/`ModeShift`; neither
+`BJCommand2.framework` nor `BJMPILib.framework` contains a matching string.
+Printing the alignment values is presumably a `TestPrint` variant, but the two
+remaining enum members (`lf_adjust`, `auto`) map to no evidence either way.
+
+Guessing here is not like guessing in software: a wrong command goes to a
+physical device, and the cheapest of these operations still costs ink. All
+three remain available from the printer's web UI and front panel, which is
+where they should be used until someone can capture them.
+
 ## Two Canon defects this driver does not reproduce
 
 **1. A corrupted XML declaration.** In the maintenance `SetJobConfiguration`
