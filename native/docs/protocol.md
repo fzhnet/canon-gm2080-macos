@@ -60,6 +60,31 @@ a malformed StartJob, and a crafted title could close `jobname` early and
 inject elements. `job_description` is CDATA, which needs the separate `]]>`
 split. Both are handled in `ivec.c`, the only place that writes element text.
 
+## Duplex does not travel in the raster header on macOS
+
+Canon's driver puts two-sided printing in two places at once: `duplexprint`
+ON/OFF in the `SetConfiguration` block, and the `Duplex`/`Tumble` fields of
+every PWG page header. The header is where the binding edge lives — there is
+no IVEC element for it, and Canon's long-edge and short-edge captures differ
+by exactly one byte, at header offset 368.
+
+Those header fields are filled in by the RIP, from the PPD's
+`<</Duplex true/Tumble true>>setpagedevice` code. Ghostscript does that on
+Linux. **macOS's `cgpdftoraster` does not** — measured against the real chain,
+`Duplex` (offset 272) and `Tumble` (368) are zero even for an explicit
+`-o Duplex=DuplexTumble`, while `cupsWidth`/`cupsHeight` in the same header
+read correctly, so the offsets are not in doubt.
+
+So a filter that reads duplex out of the incoming header works when tested
+against Canon's Linux driver and silently does nothing on the platform it
+ships for. This driver instead resolves the setting from the PPD
+(`ppdMarkDefaults` + `cupsMarkOptions` + `ppdFindMarkedChoice`, which also
+translates the IPP `sides` spellings) and stamps `Duplex`/`Tumble` into each
+page header on the way out, so the header agrees with the command block.
+
+Media is different: `cupsPageSizeName` and `MediaType` *are* populated by
+cgpdftoraster, so the header remains a usable fallback for those.
+
 ## Maintenance coverage, and what is missing
 
 The printer's own web UI offers eight maintenance functions. This driver

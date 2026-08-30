@@ -182,6 +182,10 @@ EndJob
   [docs/protocol.md](docs/protocol.md)。
 - 作业标题和用户名会做 XML 转义，所以名为 `P&L <draft>.pdf` 的文件
   依然能产出格式良好的命令块。
+- 双面设置从 PPD 解析：队列**默认**双面能被正确继承，显式指定单面仍然优先，
+  短边装订也能真正传到打印机。macOS 的 RIP 不会填充栅格页头里的
+  Duplex/Tumble 字段（Linux 会），所以由滤镜自己写入 ——
+  见 [docs/protocol.md](docs/protocol.md)。
 
 ### 仍然开放
 

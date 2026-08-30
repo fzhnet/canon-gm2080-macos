@@ -34,6 +34,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <cups/cups.h>
+#include <cups/ppd.h>
 #include <cups/raster.h>
 
 static void
@@ -173,6 +174,56 @@ typedef struct {
     long  size;
 } page_buf_t;
 
+/* Resolves two-sided printing and its binding edge.
+ *
+ * This has to come from the PPD, not from the raster header.  On Linux the
+ * Ghostscript-based RIP executes the PPD's `<</Duplex true/Tumble ...>>
+ * setpagedevice` code and the header arrives with both fields set, which is
+ * what Canon's own driver reads.  macOS's cgpdftoraster does not: measured
+ * against the real chain, header.Duplex and header.Tumble are zero even for
+ * an explicit -o Duplex=DuplexTumble.  Reading them here would silently drop
+ * every duplex setting that lives in the queue's default rather than in the
+ * job's options, and would lose short-edge binding entirely.
+ *
+ * ppdMarkDefaults + cupsMarkOptions gives the effective choice: the queue
+ * default, overridden by the job's options, with cupsMarkOptions translating
+ * the IPP `sides` spellings to the PPD's Duplex choices for us. */
+static void
+resolve_duplex(int num_options, cups_option_t *options,
+               int *duplex, int *tumble)
+{
+    ppd_file_t   *ppd;
+    ppd_choice_t *choice;
+    const char   *val;
+
+    *duplex = *tumble = 0;
+
+    if ((ppd = ppdOpenFile(getenv("PPD"))) != NULL) {
+        ppdMarkDefaults(ppd);
+        cupsMarkOptions(ppd, num_options, options);
+
+        if ((choice = ppdFindMarkedChoice(ppd, "Duplex")) != NULL) {
+            *duplex = !strncasecmp(choice->choice, "Duplex", 6);
+            *tumble = !strcasecmp(choice->choice, "DuplexTumble");
+        }
+
+        ppdClose(ppd);
+        return;
+    }
+
+    /* No PPD in the environment - the filter is being run by hand.  Fall back
+     * to the option string, where an explicit setting is all there is: there
+     * is no default to infer, so nothing may override what was asked for. */
+    if (!(val = cupsGetOption("Duplex", num_options, options)))
+        val = cupsGetOption("sides", num_options, options);
+
+    if (val && strncasecmp(val, "one", 3) && strcasecmp(val, "None")) {
+        *duplex = 1;
+        *tumble = strcasestr(val, "short") != NULL ||
+                  !strcasecmp(val, "DuplexTumble");
+    }
+}
+
 /* One temp file holds every page.  cupsd exports TMPDIR pointing inside the
  * sandbox it runs filters in, so a hardcoded /private/tmp is not guaranteed
  * to be writable when the filter runs for real rather than by hand. */
@@ -199,7 +250,7 @@ main(int argc, char *argv[])
     cups_option_t  *options;
     const char     *job_id, *user, *title, *val;
     const char     *media, *papertype, *colormode;
-    int            duplex, infd, i;
+    int            duplex, tumble, infd, i;
     cups_raster_t  *ras_in;
     cups_page_header2_t header, first;
     page_buf_t     *pages = NULL;
@@ -222,6 +273,9 @@ main(int argc, char *argv[])
 
     /* The GM series is a single-black machine; colour is never meaningful. */
     colormode = "monochrome";
+
+    /* Resolved before the loop because every page header carries it. */
+    resolve_duplex(num_options, options, &duplex, &tumble);
 
     if (argc == 7) {
         if ((infd = open(argv[6], O_RDONLY)) < 0) {
@@ -277,6 +331,13 @@ main(int argc, char *argv[])
             cupsRasterClose(ras_out);
             goto fail;
         }
+
+        /* Canon's own output carries these in the PWG header alongside the
+         * IVEC duplexprint element; on macOS the RIP leaves them zero, so
+         * fill them in rather than shipping a header that contradicts the
+         * command block. */
+        header.Duplex = (unsigned)duplex;
+        header.Tumble = (unsigned)tumble;
 
         if (!cupsRasterWriteHeader2(ras_out, &header)) {
             fputs("ERROR: cannot write PWG page header\n", stderr);
@@ -339,12 +400,10 @@ main(int argc, char *argv[])
         goto fail;
     }
 
-    /* Media and duplex come from the page header first, and only then from the
-     * option string.  The header is what the RIP actually produced, so it
-     * already reflects PPD defaults that never appear in argv[5] - a queue
-     * whose default is two-sided would otherwise print single-sided.  (Tumble
-     * needs no handling here: it rides along in the PWG header, which is
-     * copied through untouched, exactly as Canon's own driver leaves it.) */
+    /* Media falls back to the page header when the option string is silent.
+     * Unlike Duplex/Tumble, cupsPageSizeName and MediaType *are* populated by
+     * cgpdftoraster, so the header is a usable second source here - it is what
+     * the RIP actually produced, which is the geometry already in the spool. */
     val       = cupsGetOption("PageSize", num_options, options);
     if (!val && *first.cupsPageSizeName)
         val = first.cupsPageSizeName;
@@ -354,11 +413,6 @@ main(int argc, char *argv[])
     if (!val && *first.MediaType)
         val = first.MediaType;
     papertype = lookup(MEDIATYPE, val, "stationery");
-
-    val    = cupsGetOption("Duplex", num_options, options);
-    if (!val) val = cupsGetOption("sides", num_options, options);
-    duplex = (val && strncasecmp(val, "one", 3) && strcasecmp(val, "None"))
-             || first.Duplex;
 
     /* Prefer the job's real UUID; fall back to something stable if CUPS did
      * not supply one, so job_description is never empty. */

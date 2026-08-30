@@ -184,6 +184,11 @@ produces, reproduce them. `docs/` in the parent directory records the evidence.
   deliberate — see [docs/protocol.md](docs/protocol.md).
 - Job title and user name are XML-escaped, so a document called
   `P&L <draft>.pdf` still produces well-formed blocks.
+- Duplex is resolved from the PPD, so a queue whose *default* is two-sided is
+  honoured, an explicit one-sided request still wins, and short-edge binding
+  reaches the printer. macOS's RIP leaves the raster header's Duplex/Tumble
+  fields empty — unlike Linux's — so the filter fills them in itself; see
+  [docs/protocol.md](docs/protocol.md).
 
 ### Still open
 

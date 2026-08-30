@@ -99,21 +99,25 @@ end_job(FILE *out, const char *job_id)
 
 /* ---------------------------------------------------------------- dispatch */
 
-/* Emits the operation block for one command.  Returns 0 if the command is not
- * one we handle, so the caller can report it rather than silently succeeding. */
-static int
-dispatch(FILE *out, const char *job_id, const char *cmd)
-{
-    /* "Clean" and "Clean all" are the standard CUPS spellings. */
-    if (!strcasecmp(cmd, "Clean") || !strcasecmp(cmd, "Clean all")) {
-        cleaning(out, job_id, "regular", "all");
-        return 1;
-    }
+/* The commands this filter understands.  A table rather than a chain of ifs
+ * so that resolving a command and performing it are separate steps: every
+ * line in the file is resolved before any of them is sent, because a
+ * half-executed maintenance job cannot be taken back.
+ *
+ * "Clean" and "Clean all" are both accepted: the PPD advertises the former
+ * (the standard CUPS spelling) and maintenance.sh sends the latter, which is
+ * what Canon's own driver accepts. */
+typedef struct {
+    const char *name;
+    int         cleaning;         /* Cleaning if set, otherwise TestPrint */
+    const char *type;
+    const char *inkgroup;         /* Cleaning only */
+} command_t;
 
-    if (!strcasecmp(cmd, "com.canon.deepclean")) {
-        cleaning(out, job_id, "deep", "all");
-        return 1;
-    }
+static const command_t COMMANDS[] = {
+    { "Clean",                   1, "regular",           "all" },
+    { "Clean all",               1, "regular",           "all" },
+    { "com.canon.deepclean",     1, "deep",              "all" },
 
     /* System cleaning - Canon's most aggressive purge, its own utility warns
      * it "consumes a large amount of ink".  "choke" sits in the same type enum
@@ -122,22 +126,32 @@ dispatch(FILE *out, const char *job_id, const char *cmd)
      * emits it, and the printer answers no queries on port 9100.  So the
      * operation and parameter shape are known exactly and only the label
      * mapping is inferred.  See docs/protocol.md. */
-    if (!strcasecmp(cmd, "com.canon.systemclean")) {
-        cleaning(out, job_id, "choke", "all");
-        return 1;
-    }
+    { "com.canon.systemclean",   1, "choke",             "all" },
 
-    if (!strcasecmp(cmd, "PrintSelfTestPage")) {
-        test_print(out, job_id, "nozzle_check");
-        return 1;
-    }
+    { "PrintSelfTestPage",       0, "nozzle_check",      NULL  },
+    { "com.canon.autoalignment", 0, "auto_registration", NULL  },
+    { NULL, 0, NULL, NULL }
+};
 
-    if (!strcasecmp(cmd, "com.canon.autoalignment")) {
-        test_print(out, job_id, "auto_registration");
-        return 1;
-    }
+static const command_t *
+resolve(const char *cmd)
+{
+    int i;
 
-    return 0;
+    for (i = 0; COMMANDS[i].name; i ++)
+        if (!strcasecmp(cmd, COMMANDS[i].name))
+            return &COMMANDS[i];
+
+    return NULL;
+}
+
+static void
+perform(FILE *out, const char *job_id, const command_t *c)
+{
+    if (c->cleaning)
+        cleaning(out, job_id, c->type, c->inkgroup);
+    else
+        test_print(out, job_id, c->type);
 }
 
 /* -------------------------------------------------------------------- main */
@@ -151,7 +165,10 @@ main(int argc, char *argv[])
     const char *job_id, *user, *real_uuid;
     int   num_options;
     cups_option_t *options;
-    int   handled = 0, unknown = 0;
+    int   handled = 0, unknown = 0, i;
+    /* A maintenance file is a handful of lines; the cap only exists so the
+     * array cannot be overrun by a pathological one. */
+    const command_t *resolved[32];
 
     if (argc < 6 || argc > 7) {
         fputs("ERROR: cmdtocanonijgm job user title copies options [file]\n",
@@ -180,11 +197,11 @@ main(int argc, char *argv[])
     ivec_jobid(padded_id, sizeof(padded_id), job_id);
     job_id = padded_id;
 
-    /* The envelope is written up front so that a command file containing
-     * several operations produces one maintenance job, matching Canon. */
-    start_job(stdout, job_id, uuid);
-    set_job_configuration(stdout, job_id);
-
+    /* Resolve every line before sending anything.  These operations are
+     * physical and not undoable: if the file were streamed as it was parsed, a
+     * trailing bad line would fail the job only after the printer had already
+     * run a cleaning cycle, and CUPS reporting failure invites the user to
+     * resubmit and spend the ink a second time. */
     while (fgets(line, sizeof(line), in)) {
         char *p = line, *end;
 
@@ -198,27 +215,41 @@ main(int argc, char *argv[])
         if (!*p || *p == '#')
             continue;
 
-        if (dispatch(stdout, job_id, p)) {
-            handled ++;
-        } else {
+        if (!(resolved[handled] = resolve(p))) {
             fprintf(stderr, "ERROR: unsupported command: %s\n", p);
             unknown ++;
+            continue;
+        }
+
+        if (++handled == (int)(sizeof(resolved) / sizeof(resolved[0]))) {
+            fputs("ERROR: too many commands in one job\n", stderr);
+            unknown ++;
+            break;
         }
     }
 
     if (in != stdin)
         fclose(in);
 
-    end_job(stdout, job_id);
-    fflush(stdout);
-
-    if (unknown)
+    if (unknown) {
+        fputs("ERROR: nothing was sent to the printer\n", stderr);
         return 1;
+    }
 
     if (!handled) {
         fputs("ERROR: command file contained no commands\n", stderr);
         return 1;
     }
+
+    /* One envelope around all of them, matching Canon. */
+    start_job(stdout, job_id, uuid);
+    set_job_configuration(stdout, job_id);
+
+    for (i = 0; i < handled; i ++)
+        perform(stdout, job_id, resolved[i]);
+
+    end_job(stdout, job_id);
+    fflush(stdout);
 
     return 0;
 }
