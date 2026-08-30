@@ -28,7 +28,7 @@
 从 [Releases](../../releases/latest) 下载 `.pkg`，然后：
 
 ```bash
-sudo installer -pkg CanonGM2080Native-1.0.pkg -target /
+sudo installer -pkg CanonGM2080Native-1.0.1.pkg -target /
 ./add-printer.sh 192.168.1.50                        # 你的打印机地址
 ./add-printer.sh 192.168.1.50 Office_Mono            # ...指定队列名
 ./add-printer.sh 192.168.1.50 Office_GM4070 gm4000   # ...再指定机型系列

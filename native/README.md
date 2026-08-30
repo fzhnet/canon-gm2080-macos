@@ -28,7 +28,7 @@ how to report a model: [docs/models.md](docs/models.md).
 ## Install
 
 ```bash
-sudo installer -pkg dist/CanonGM2080Native-1.0.pkg -target /
+sudo installer -pkg dist/CanonGM2080Native-1.0.1.pkg -target /
 ./add-printer.sh 192.168.1.50                        # your printer's address
 ./add-printer.sh 192.168.1.50 Office_Mono             # ...with a queue name
 ./add-printer.sh 192.168.1.50 Office_GM4070 gm4000    # ...and another series

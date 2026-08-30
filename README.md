@@ -33,7 +33,7 @@ cost is a container that has to be running whenever you print.
 Download the package from [Releases](../../releases/latest), then:
 
 ```bash
-sudo installer -pkg CanonGM2080Native-1.0.pkg -target /
+sudo installer -pkg CanonGM2080Native-1.0.1.pkg -target /
 ./native/add-printer.sh <printer-ip>
 ```
 
@@ -42,7 +42,7 @@ Or build it yourself — needs the Xcode command line tools
 
 ```bash
 cd native && ./build.sh
-sudo installer -pkg dist/CanonGM2080Native-1.0.pkg -target /
+sudo installer -pkg dist/CanonGM2080Native-1.0.1.pkg -target /
 ./add-printer.sh <printer-ip>
 ```
 

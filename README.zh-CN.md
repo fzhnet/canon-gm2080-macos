@@ -30,7 +30,7 @@
 从 [Releases](../../releases/latest) 下载安装包，然后：
 
 ```bash
-sudo installer -pkg CanonGM2080Native-1.0.pkg -target /
+sudo installer -pkg CanonGM2080Native-1.0.1.pkg -target /
 ./native/add-printer.sh <打印机IP>
 ```
 
@@ -38,7 +38,7 @@ sudo installer -pkg CanonGM2080Native-1.0.pkg -target /
 
 ```bash
 cd native && ./build.sh
-sudo installer -pkg dist/CanonGM2080Native-1.0.pkg -target /
+sudo installer -pkg dist/CanonGM2080Native-1.0.1.pkg -target /
 ./add-printer.sh <打印机IP>
 ```
 

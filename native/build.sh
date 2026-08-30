@@ -25,7 +25,7 @@
 # Output: dist/CanonGM2080Native-<version>.pkg
 set -euo pipefail
 
-VERSION="${VERSION:-1.0}"
+VERSION="${VERSION:-1.0.1}"
 IDENTIFIER="com.local.canon-gm2080-native"
 
 SIGN_APP="${SIGN_APP:-}"
