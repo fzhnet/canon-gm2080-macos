@@ -19,6 +19,21 @@ Developed against a GM2080 (firmware 1.050) on macOS 26.5, Apple Silicon.
 The native driver has been confirmed end to end: installed from the package,
 added as a queue, and printed. See [Status](#status) for what else is checked.
 
+## If you got here from a search
+
+If you were looking for any of these, the answer is yes:
+
+- canon gm2080 mac driver · gm2070 macos · gm4080 apple silicon
+- canon gm series no macOS driver · canon megatank mac driver
+- "cannot communicate with the printer" when adding a Canon GM on macOS
+
+That last one is almost always the protocol picker: macOS defaults to IPP,
+which is the one protocol these printers do not speak. Use **HP Jetdirect —
+Socket** instead and leave the queue name empty.
+
+Canon's own macOS compatibility table lists the GM series as Not Supported for
+both driver and AirPrint, which is why this project exists.
+
 ## Which one to use
 
 Start with **`native/`**. It is a normal driver: install a package, add the
